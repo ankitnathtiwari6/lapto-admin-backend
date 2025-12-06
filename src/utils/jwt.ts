@@ -30,9 +30,9 @@ export function generateToken(user: IStaff | ICustomer, type: 'staff' | 'custome
   }
 
   const secret = process.env.JWT_SECRET || 'default-secret-key';
-  const expiresIn = process.env.JWT_EXPIRE || '7d';
+  const expiresIn: string = process.env.JWT_EXPIRE || '7d';
 
-  return jwt.sign(payload, secret, { expiresIn });
+  return jwt.sign(payload, secret, { expiresIn } as jwt.SignOptions);
 }
 
 export const verifyToken = (token: string): JwtPayload => {
