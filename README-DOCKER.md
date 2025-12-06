@@ -6,6 +6,7 @@ This guide explains how to run the Lapto Admin backend using Docker and Docker C
 
 - Docker Engine 20.10 or later
 - Docker Compose 2.0 or later
+- MongoDB Atlas account with a cluster set up
 
 ## Quick Start
 
@@ -17,14 +18,14 @@ Create a `.env` file in the backend directory:
 cp .env.example .env
 ```
 
-Update the `.env` file with your configuration. For Docker, you can use:
+Update the `.env` file with your MongoDB Atlas connection string and other configuration:
 
 ```env
 NODE_ENV=production
 PORT=5000
 
-# MongoDB (Docker)
-MONGODB_URI=mongodb://admin:admin123@mongodb:27017/lapto?authSource=admin
+# MongoDB Atlas
+MONGODB_URI=mongodb+srv://your-username:your-password@your-cluster.mongodb.net/lapto
 
 # JWT
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
@@ -40,38 +41,36 @@ CORS_ORIGIN=http://localhost:5173
 GEMINI_API_KEY=your-gemini-api-key
 ```
 
-### 2. Start Services
+### 2. Start the Backend
 
-Start both MongoDB and the backend API:
+Start the backend API:
 
 ```bash
 docker-compose up -d
 ```
 
 This will:
-- Pull the MongoDB 7 image
 - Build the backend Docker image
-- Start both services in detached mode
-- Create persistent volumes for MongoDB data
+- Start the backend service in detached mode
+- Connect to your MongoDB Atlas cluster
 
 ### 3. View Logs
 
-To view logs from all services:
+To view backend logs:
 
 ```bash
 docker-compose logs -f
 ```
 
-To view logs from a specific service:
+Or specifically:
 
 ```bash
 docker-compose logs -f backend
-docker-compose logs -f mongodb
 ```
 
 ### 4. Check Service Health
 
-Check if services are running:
+Check if the backend is running:
 
 ```bash
 docker-compose ps
@@ -85,16 +84,10 @@ curl http://localhost:5000/health
 
 ## Docker Commands
 
-### Stop Services
+### Stop the Backend
 
 ```bash
 docker-compose down
-```
-
-### Stop and Remove Volumes (WARNING: This deletes all database data)
-
-```bash
-docker-compose down -v
 ```
 
 ### Rebuild and Restart
@@ -103,12 +96,6 @@ After making code changes:
 
 ```bash
 docker-compose up -d --build
-```
-
-### Access MongoDB Shell
-
-```bash
-docker-compose exec mongodb mongosh -u admin -p admin123 --authenticationDatabase admin
 ```
 
 ### Execute Commands in Backend Container
@@ -129,11 +116,12 @@ docker build -t lapto-admin-backend:latest .
 
 For production, ensure you:
 
-1. Change MongoDB credentials in `docker-compose.yml`
+1. Use your production MongoDB Atlas cluster connection string
 2. Use strong passwords for `LAPTO_ADMIN_PASSWORD`
-3. Generate a secure `JWT_SECRET`
-4. Set appropriate `CORS_ORIGIN`
+3. Generate a secure `JWT_SECRET` (use `openssl rand -base64 32`)
+4. Set appropriate `CORS_ORIGIN` to your frontend domain
 5. Use HTTPS in production
+6. Whitelist your server's IP address in MongoDB Atlas Network Access
 
 ### Docker Compose Override for Production
 
@@ -143,17 +131,9 @@ Create a `docker-compose.prod.yml`:
 version: '3.8'
 
 services:
-  mongodb:
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
-    volumes:
-      - /var/lib/mongodb/data:/data/db
-
   backend:
     environment:
       NODE_ENV: production
-      MONGODB_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb:27017/lapto?authSource=admin
     restart: always
 ```
 
@@ -165,47 +145,39 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ## Networking
 
-The services communicate over a custom bridge network called `lapto-network`.
-
 - **Backend**: Accessible at `http://localhost:5000`
-- **MongoDB**: Accessible at `localhost:27017` (from host) or `mongodb:27017` (from containers)
-
-## Volumes
-
-Persistent data is stored in Docker volumes:
-
-- `mongodb_data`: MongoDB database files
-- `mongodb_config`: MongoDB configuration files
+- The backend connects to MongoDB Atlas via the internet
 
 ## Health Checks
 
-Both services include health checks:
+The backend service includes a health check:
 
-- **MongoDB**: Pings the database every 10 seconds
 - **Backend**: Checks `/health` endpoint every 30 seconds
 
 ## Troubleshooting
 
-### Backend Can't Connect to MongoDB
+### Backend Can't Connect to MongoDB Atlas
 
-1. Check if MongoDB is healthy:
+1. Verify your MongoDB Atlas connection string in `.env`:
    ```bash
-   docker-compose ps
+   cat .env | grep MONGODB_URI
    ```
 
-2. Check MongoDB logs:
+2. Check backend logs for connection errors:
    ```bash
-   docker-compose logs mongodb
+   docker-compose logs backend
    ```
 
-3. Verify network connectivity:
-   ```bash
-   docker-compose exec backend ping mongodb
-   ```
+3. Ensure your IP address is whitelisted in MongoDB Atlas:
+   - Go to MongoDB Atlas Dashboard
+   - Navigate to Network Access
+   - Add your server's IP address or use `0.0.0.0/0` for testing (not recommended for production)
+
+4. Verify MongoDB Atlas credentials are correct in the connection string
 
 ### Port Already in Use
 
-If port 5000 or 27017 is already in use, change the port mapping in `docker-compose.yml`:
+If port 5000 is already in use, change the port mapping in `docker-compose.yml`:
 
 ```yaml
 ports:
@@ -237,9 +209,17 @@ This allows hot-reloading during development.
 
 ## Clean Up
 
-Remove all containers, networks, and volumes:
+Remove container and images:
 
 ```bash
-docker-compose down -v
+docker-compose down
 docker system prune -a
 ```
+
+## Important Notes
+
+- This setup uses MongoDB Atlas, so ensure your cluster is always accessible
+- Network Access in MongoDB Atlas must include your Docker host's IP address
+- For local development, you can use `0.0.0.0/0` in MongoDB Atlas Network Access (allow from anywhere)
+- For production, restrict access to specific IP addresses
+- The container connects to MongoDB Atlas over the internet, so ensure proper security measures are in place
