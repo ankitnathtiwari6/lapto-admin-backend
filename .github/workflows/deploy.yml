@@ -1,0 +1,62 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🚀 Deploy to DigitalOcean
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "================================================"
+            echo "🚀 Starting Deployment"
+            echo "================================================"
+
+            # Navigate to project directory
+            cd /var/www/lapto-admin
+
+            # Pull latest code
+            echo "📥 Pulling latest code from GitHub..."
+            git pull origin master
+
+            # Rebuild and restart containers
+            echo "🔨 Rebuilding Docker containers..."
+            docker-compose down
+            docker-compose up -d --build
+
+            # Wait for containers to start
+            echo "⏳ Waiting for containers to start..."
+            sleep 15
+
+            # Health check
+            echo "🏥 Running health check..."
+            MAX_TRIES=20
+            COUNTER=0
+
+            while [ $COUNTER -lt $MAX_TRIES ]; do
+              if curl -f http://localhost:5000/health > /dev/null 2>&1; then
+                echo "✅ Health check passed!"
+                echo "✅ Deployment successful!"
+                echo ""
+                echo "📦 Container Status:"
+                docker-compose ps
+                exit 0
+              fi
+              COUNTER=$((COUNTER + 1))
+              echo "Attempt $COUNTER/$MAX_TRIES..."
+              sleep 3
+            done
+
+            echo "❌ Health check failed after $MAX_TRIES attempts"
+            echo "📋 Container logs:"
+            docker-compose logs backend --tail=50
+            exit 1
