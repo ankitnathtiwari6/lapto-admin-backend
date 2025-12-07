@@ -102,6 +102,7 @@ interface ICustomerFeedback {
 
 export interface IOrder extends Document {
   orderNumber: string;
+  voucherNo?: string;
   orderType: 'service' | 'product' | 'mixed';
   companyId: mongoose.Types.ObjectId;
   customerId?: mongoose.Types.ObjectId;
@@ -172,6 +173,7 @@ export interface IOrder extends Document {
 
 const OrderSchema = new Schema({
   orderNumber: { type: String, required: true, unique: true },
+  voucherNo: { type: String },
   orderType: {
     type: String,
     enum: ['service', 'product', 'mixed'],

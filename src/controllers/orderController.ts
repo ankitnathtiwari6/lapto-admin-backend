@@ -194,6 +194,7 @@ export const createOrder = async (
       ...req.body,
       companyId,
       orderNumber,
+      voucherNo: req.body.voucherNo || undefined,
       invoiceNumber,
       orderType,
       customerId: req.body.customer?.customerId || req.body.customerId || undefined,
