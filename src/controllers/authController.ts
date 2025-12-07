@@ -119,12 +119,12 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone, password } = req.body;
+    const { email, password } = req.body;
 
-    if (!phone || !password) {
+    if (!email || !password) {
       res.status(400).json({
         success: false,
-        message: 'Please provide phone and password'
+        message: 'Please provide email and password'
       });
       return;
     }
@@ -133,11 +133,11 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     let userType: 'staff' | 'customer' = 'customer';
 
     // Try staff first, then customer
-    user = await Staff.findOne({ phone }).select('+password');
+    user = await Staff.findOne({ email }).select('+password');
     if (user) {
       userType = 'staff';
     } else {
-      user = await Customer.findOne({ phone }).select('+password');
+      user = await Customer.findOne({ email }).select('+password');
       userType = 'customer';
     }
 

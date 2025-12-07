@@ -2,13 +2,13 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ICompany extends Document {
   companyName: string;
-  gstin: string;
-  address: string;
-  city: string;
-  state: string;
-  pincode: string;
+  gstin?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
   phone: string;
-  email?: string;
+  email: string;
   defaultGstRate: number;
   logo?: string;
   termsAndConditions?: string;
@@ -20,14 +20,14 @@ export interface ICompany extends Document {
 
 const CompanySchema = new Schema({
   companyName: { type: String, required: true },
-  gstin: { type: String, required: true, unique: true },
-  address: { type: String, required: true },
-  city: { type: String, required: true },
-  state: { type: String, required: true },
-  pincode: { type: String, required: true },
+  gstin: { type: String, unique: true, sparse: true },
+  address: String,
+  city: String,
+  state: String,
+  pincode: String,
   phone: { type: String, required: true },
-  email: String,
-  defaultGstRate: { type: Number, required: true, default: 18 },
+  email: { type: String, required: true },
+  defaultGstRate: { type: Number, default: 18 },
   logo: String,
   termsAndConditions: String,
   isActive: { type: Boolean, default: true },

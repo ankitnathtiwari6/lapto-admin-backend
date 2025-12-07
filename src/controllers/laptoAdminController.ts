@@ -1,26 +1,134 @@
-import { Request, Response } from 'express';
-import Company from '../models/Company';
-import Staff from '../models/Staff';
+import { Request, Response } from "express";
+import Company from "../models/Company";
+import Staff from "../models/Staff";
+import LaptoAdmin, { ILaptoAdmin } from "../models/LaptoAdmin";
+import { generateToken } from "../utils/jwt";
 
-// Middleware to verify Lapto Admin password
-const verifyLaptoAdminPassword = (password: string): boolean => {
-  const adminPassword = process.env.LAPTO_ADMIN_PASSWORD || '12345';
-  return password === adminPassword;
-};
-
-// Create a company (no auth required, only password)
-export const createCompanyAsAdmin = async (req: Request, res: Response): Promise<void> => {
+// Login for Lapto Admin using email and password
+export const loginLaptoAdmin = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { password, companyData } = req.body;
+    const { email, password } = req.body;
 
-    // Verify admin password
-    if (!password || !verifyLaptoAdminPassword(password)) {
-      res.status(401).json({
+    if (!email || !password) {
+      res.status(400).json({
         success: false,
-        message: 'Invalid Lapto Admin password'
+        message: "Please provide email and password",
       });
       return;
     }
+
+    // Find admin by email and include password field
+    const admin = await LaptoAdmin.findOne({ email }).select("+password");
+
+    if (!admin || !(await admin.comparePassword(password))) {
+      res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+      return;
+    }
+
+    if (admin.status !== "active") {
+      res.status(401).json({
+        success: false,
+        message: "Your account is not active",
+      });
+      return;
+    }
+
+    // Update last login
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // Generate token (treating as staff type with special role)
+    const token = generateToken(admin as any, "staff");
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          _id: admin._id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+          status: admin.status,
+          isStaff: true,
+          createdAt: admin.createdAt,
+          updatedAt: admin.updatedAt,
+        },
+        token,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Server error",
+    });
+  }
+};
+
+// Register/Create Lapto Admin (for initial setup)
+export const registerLaptoAdmin = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!email || !password) {
+      res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+      return;
+    }
+
+    // Check if admin with this email already exists
+    const existingAdmin = await LaptoAdmin.findOne({ email });
+    if (existingAdmin) {
+      res.status(400).json({
+        success: false,
+        message: "Admin with this email already exists",
+      });
+      return;
+    }
+
+    const admin = await LaptoAdmin.create({
+      name: name || "Lapto Admin",
+      email,
+      password,
+      role: "lapto_admin",
+      status: "active",
+    });
+
+    // Remove password from response
+    const adminResponse = admin.toObject();
+    delete adminResponse.password;
+
+    res.status(201).json({
+      success: true,
+      data: adminResponse,
+      message: "Lapto Admin created successfully",
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Server error",
+    });
+  }
+};
+
+// Create a company (requires JWT auth with lapto_admin role)
+export const createCompanyAsAdmin = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    // Handle both direct body and companyData wrapper for backward compatibility
+    const data = req.body.companyData || req.body;
 
     const {
       companyName,
@@ -33,15 +141,15 @@ export const createCompanyAsAdmin = async (req: Request, res: Response): Promise
       email,
       defaultGstRate,
       logo,
-      termsAndConditions
-    } = companyData;
+      termsAndConditions,
+    } = data;
 
     // Check if GSTIN already exists
     const existingCompany = await Company.findOne({ gstin });
     if (existingCompany) {
       res.status(400).json({
         success: false,
-        message: 'Company with this GSTIN already exists'
+        message: "Company with this GSTIN already exists",
       });
       return;
     }
@@ -58,52 +166,39 @@ export const createCompanyAsAdmin = async (req: Request, res: Response): Promise
       defaultGstRate: defaultGstRate || 18,
       logo,
       termsAndConditions,
-      createdBy: null // Lapto Admin created - no specific user reference needed
+      createdBy: null,
     });
 
     res.status(201).json({
       success: true,
       data: company,
-      message: 'Company created successfully by Lapto Admin'
+      message: "Company created successfully by Lapto Admin",
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || "Server error",
     });
   }
 };
 
-// Add staff member to company (no auth required, only password)
-export const addCompanyUser = async (req: Request, res: Response): Promise<void> => {
+// Add staff member to company (requires JWT auth with lapto_admin role)
+export const addCompanyUser = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { password, userData } = req.body;
+    // Handle both direct body and userData wrapper for backward compatibility
+    const data = req.body.userData || req.body;
 
-    // Verify admin password
-    if (!password || !verifyLaptoAdminPassword(password)) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid Lapto Admin password'
-      });
-      return;
-    }
-
-    const {
-      fullName,
-      email,
-      phone,
-      password: userPassword,
-      role,
-      companyId,
-      status
-    } = userData;
+    const { fullName, email, phone, password, role, companyId, status } = data;
 
     // Validate companyId exists
     const company = await Company.findById(companyId);
     if (!company) {
       res.status(404).json({
         success: false,
-        message: 'Company not found'
+        message: "Company not found",
       });
       return;
     }
@@ -113,7 +208,8 @@ export const addCompanyUser = async (req: Request, res: Response): Promise<void>
     if (existingUser) {
       res.status(400).json({
         success: false,
-        message: 'Staff member with this phone number already exists in this company'
+        message:
+          "Staff member with this phone number already exists in this company",
       });
       return;
     }
@@ -122,10 +218,10 @@ export const addCompanyUser = async (req: Request, res: Response): Promise<void>
       fullName,
       email,
       phone,
-      password: userPassword,
+      password,
       role,
       companyId,
-      status: status || 'active'
+      status: status || "active",
     });
 
     // Remove password from response
@@ -135,36 +231,29 @@ export const addCompanyUser = async (req: Request, res: Response): Promise<void>
     res.status(201).json({
       success: true,
       data: userResponse,
-      message: 'Staff member created successfully'
+      message: "Staff member created successfully",
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || "Server error",
     });
   }
 };
 
-// Remove staff member (no auth required, only password)
-export const removeCompanyUser = async (req: Request, res: Response): Promise<void> => {
+// Remove staff member (requires JWT auth with lapto_admin role)
+export const removeCompanyUser = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { password } = req.body;
     const { userId } = req.params;
-
-    // Verify admin password
-    if (!password || !verifyLaptoAdminPassword(password)) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid Lapto Admin password'
-      });
-      return;
-    }
 
     const user = await Staff.findById(userId);
     if (!user) {
       res.status(404).json({
         success: false,
-        message: 'Staff member not found'
+        message: "Staff member not found",
       });
       return;
     }
@@ -173,81 +262,65 @@ export const removeCompanyUser = async (req: Request, res: Response): Promise<vo
 
     res.status(200).json({
       success: true,
-      message: 'Staff member removed successfully'
+      message: "Staff member removed successfully",
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || "Server error",
     });
   }
 };
 
-// Update staff member (no auth required, only password)
-export const updateCompanyUser = async (req: Request, res: Response): Promise<void> => {
+// Update staff member (requires JWT auth with lapto_admin role)
+export const updateCompanyUser = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { password, userData } = req.body;
     const { userId } = req.params;
-
-    // Verify admin password
-    if (!password || !verifyLaptoAdminPassword(password)) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid Lapto Admin password'
-      });
-      return;
-    }
 
     const user = await Staff.findById(userId);
     if (!user) {
       res.status(404).json({
         success: false,
-        message: 'Staff member not found'
+        message: "Staff member not found",
       });
       return;
     }
 
-    const updatedUser = await Staff.findByIdAndUpdate(
-      userId,
-      userData,
-      { new: true, runValidators: true }
-    ).select('-password');
+    const updatedUser = await Staff.findByIdAndUpdate(userId, req.body, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
 
     res.status(200).json({
       success: true,
       data: updatedUser,
-      message: 'Staff member updated successfully'
+      message: "Staff member updated successfully",
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || "Server error",
     });
   }
 };
 
-// Get all companies (no auth required, only password)
-export const getAllCompaniesAsAdmin = async (req: Request, res: Response): Promise<void> => {
+// Get all companies (requires JWT auth with lapto_admin role)
+export const getAllCompaniesAsAdmin = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { password } = req.query;
-
-    // Verify admin password
-    if (!password || !verifyLaptoAdminPassword(password as string)) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid Lapto Admin password'
-      });
-      return;
-    }
-
-    const { page = 1, limit = 10, search } = req.query;
+    const { page = 1, limit = 100, search } = req.query;
     const filter: any = {};
 
     if (search) {
       filter.$or = [
-        { companyName: new RegExp(search as string, 'i') },
-        { gstin: new RegExp(search as string, 'i') },
-        { phone: new RegExp(search as string, 'i') }
+        { companyName: new RegExp(search as string, "i") },
+        { gstin: new RegExp(search as string, "i") },
+        { phone: new RegExp(search as string, "i") },
       ];
     }
 
@@ -264,78 +337,64 @@ export const getAllCompaniesAsAdmin = async (req: Request, res: Response): Promi
       total,
       page: Number(page),
       pages: Math.ceil(total / Number(limit)),
-      data: companies
+      data: companies,
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || "Server error",
     });
   }
 };
 
-// Get staff members by company ID (no auth required, only password)
-export const getCompanyUsersAsAdmin = async (req: Request, res: Response): Promise<void> => {
+// Get staff members by company ID (requires JWT auth with lapto_admin role)
+export const getCompanyUsersAsAdmin = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { password } = req.query;
     const { companyId } = req.params;
-
-    // Verify admin password
-    if (!password || !verifyLaptoAdminPassword(password as string)) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid Lapto Admin password'
-      });
-      return;
-    }
 
     const company = await Company.findById(companyId);
     if (!company) {
       res.status(404).json({
         success: false,
-        message: 'Company not found'
+        message: "Company not found",
       });
       return;
     }
 
     const users = await Staff.find({ companyId })
-      .select('-password')
-      .populate('companyId', 'companyName gstin')
+      .select("-password")
+      .populate("companyId", "companyName gstin")
       .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       count: users.length,
-      data: users
+      data: users,
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || "Server error",
     });
   }
 };
 
-// Delete a company (no auth required, only password)
-export const deleteCompanyAsAdmin = async (req: Request, res: Response): Promise<void> => {
+// Delete a company (requires JWT auth with lapto_admin role)
+export const deleteCompanyAsAdmin = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { password } = req.body;
     const { companyId } = req.params;
-
-    // Verify admin password
-    if (!password || !verifyLaptoAdminPassword(password)) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid Lapto Admin password'
-      });
-      return;
-    }
 
     const company = await Company.findById(companyId);
     if (!company) {
       res.status(404).json({
         success: false,
-        message: 'Company not found'
+        message: "Company not found",
       });
       return;
     }
@@ -345,12 +404,12 @@ export const deleteCompanyAsAdmin = async (req: Request, res: Response): Promise
 
     res.status(200).json({
       success: true,
-      message: 'Company and all its staff members deleted successfully'
+      message: "Company and all its staff members deleted successfully",
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || "Server error",
     });
   }
 };

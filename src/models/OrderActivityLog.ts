@@ -46,7 +46,7 @@ export interface IOrderActivityLog extends Document {
 }
 
 const OrderActivityLogSchema = new Schema({
-  orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true, index: true },
+  orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
   orderNumber: { type: String, required: true },
   companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true },
 

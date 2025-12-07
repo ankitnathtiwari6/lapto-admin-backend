@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwt';
 import Staff from '../models/Staff';
 import Customer from '../models/Customer';
+import LaptoAdmin from '../models/LaptoAdmin';
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -27,14 +28,23 @@ export const protect = async (
 
     const decoded = verifyToken(token);
 
-    // Check if user is staff or customer based on JWT payload
+    // Check if user is staff, customer, or lapto admin based on JWT payload
     if (decoded.isStaff || decoded.userType === 'staff') {
-      // Staff user
-      req.user = await Staff.findById(decoded.id).select('-password').populate('companyId', 'companyName');
-      if (req.user) {
-        req.user.isStaff = true;
-        // Set company context from user's companyId
-        req.companyId = req.user.companyId?._id?.toString() || req.user.companyId?.toString();
+      // Check if it's a Lapto Admin (role: lapto_admin)
+      if (decoded.role === 'lapto_admin') {
+        req.user = await LaptoAdmin.findById(decoded.id).select('-password');
+        if (req.user) {
+          req.user.isStaff = true;
+          req.user.role = 'lapto_admin';
+        }
+      } else {
+        // Regular Staff user
+        req.user = await Staff.findById(decoded.id).select('-password').populate('companyId', 'companyName');
+        if (req.user) {
+          req.user.isStaff = true;
+          // Set company context from user's companyId
+          req.companyId = req.user.companyId?._id?.toString() || req.user.companyId?.toString();
+        }
       }
     } else if (decoded.userType === 'customer') {
       // Customer
