@@ -12,27 +12,48 @@ export const getEngineerStats = async (req: AuthRequest, res: Response) => {
     const engineerId = req.user._id;
     const today = startOfDay(new Date());
 
-    // Get all tasks assigned to this engineer
-    const allTasks = await SubTask.find({
+    // Get all subtasks assigned to this engineer
+    const allSubTasks = await SubTask.find({
       assignedTo: engineerId,
       isDeleted: false
     });
 
-    // Calculate statistics
+    // Get all orders assigned directly to this engineer (without explicit subtasks)
+    const assignedOrders = await Order.find({
+      'assignedTo.userId': engineerId,
+      isDeleted: false
+    });
+
+    // Filter orders that don't have subtasks
+    const ordersWithoutSubTasks = [];
+    for (const order of assignedOrders) {
+      const hasSubTasks = await SubTask.exists({ orderId: order._id, isDeleted: false });
+      if (!hasSubTasks) {
+        ordersWithoutSubTasks.push(order);
+      }
+    }
+
+    // Combine statistics from both subtasks and assigned orders
+    const totalAssigned = allSubTasks.length + ordersWithoutSubTasks.length;
+    const assignedToday =
+      allSubTasks.filter(task => new Date(task.assignedAt) >= today).length +
+      ordersWithoutSubTasks.filter(order => order.assignedTo && new Date(order.assignedTo.assignedAt) >= today).length;
+
     const stats = {
-      totalAssigned: allTasks.length,
-      assignedToday: allTasks.filter(task =>
-        new Date(task.assignedAt) >= today
-      ).length,
-      pending: allTasks.filter(task => task.status === 'pending').length,
-      inProgress: allTasks.filter(task => task.status === 'in_progress').length,
-      completed: allTasks.filter(task => task.status === 'completed').length,
-      blocked: allTasks.filter(task => task.status === 'blocked').length,
-      onHold: allTasks.filter(task => task.status === 'on_hold').length,
-      reopened: allTasks.filter(task => {
+      totalAssigned,
+      assignedToday,
+      pending: allSubTasks.filter(task => task.status === 'pending').length +
+               ordersWithoutSubTasks.filter(order => order.status === 'pending').length,
+      inProgress: allSubTasks.filter(task => task.status === 'in_progress').length +
+                  ordersWithoutSubTasks.filter(order => order.status === 'in_progress').length,
+      completed: allSubTasks.filter(task => task.status === 'completed').length +
+                 ordersWithoutSubTasks.filter(order => order.status === 'completed').length,
+      blocked: allSubTasks.filter(task => task.status === 'blocked').length,
+      onHold: allSubTasks.filter(task => task.status === 'on_hold').length,
+      reopened: allSubTasks.filter(task => {
         // Check if task was reopened (has completion date but status is not completed)
         return task.completedAt && task.status !== 'completed';
-      }).length
+      }).length + ordersWithoutSubTasks.filter(order => order.status === 'reopened').length
     };
 
     res.status(200).json({
@@ -56,28 +77,107 @@ export const getEngineerTasks = async (req: AuthRequest, res: Response) => {
     const engineerId = req.user._id;
     const { status, sortBy = 'assignedAt', order = 'desc' } = req.query;
 
-    // Build query
-    const query: any = {
+    console.log('🔍 Engineer ID:', engineerId);
+    console.log('🔍 Status filter:', status);
+
+    // Build query for subtasks
+    const subTaskQuery: any = {
       assignedTo: engineerId,
       isDeleted: false
     };
 
     if (status) {
-      query.status = status;
+      subTaskQuery.status = status;
     }
 
-    // Get tasks with populated order details (excluding customer info)
-    const tasks = await SubTask.find(query)
+    // Get subtasks with populated order details
+    const subTasks = await SubTask.find(subTaskQuery)
       .populate({
         path: 'orderId',
-        select: 'orderNumber device problemDescription stageId stageName estimatedCost finalCost status receivedDate estimatedCompletionDate'
+        select: 'orderNumber device problemDescription diagnosedIssues stageId stageName estimatedCost finalCost status receivedDate estimatedCompletionDate partsUsed images'
       })
       .sort({ [sortBy as string]: order === 'desc' ? -1 : 1 });
 
+    console.log('📋 Subtasks found:', subTasks.length);
+
+    // Build query for orders assigned directly to engineer
+    const orderQuery: any = {
+      'assignedTo.userId': engineerId,
+      isDeleted: false
+    };
+
+    if (status) {
+      orderQuery.status = status;
+    }
+
+    console.log('🔍 Order query:', JSON.stringify(orderQuery));
+
+    // Get orders assigned to engineer
+    const assignedOrders = await Order.find(orderQuery)
+      .sort({ 'assignedTo.assignedAt': order === 'desc' ? -1 : 1 });
+
+    console.log('📦 Assigned orders found:', assignedOrders.length);
+
+    // Transform all orders to task format (no filtering)
+    const orderTasks = assignedOrders.map(order => {
+      console.log(`✅ Adding order ${order.orderNumber} as task`);
+      return {
+        _id: order._id,
+        orderId: {
+          _id: order._id,
+          orderNumber: order.orderNumber,
+          device: order.device,
+          problemDescription: order.problemDescription,
+          diagnosedIssues: order.diagnosedIssues,
+          stageName: order.stageName,
+          status: order.status,
+          estimatedCost: order.estimatedCost,
+          finalCost: order.finalCost,
+          receivedDate: order.receivedDate,
+          estimatedCompletionDate: order.estimatedCompletionDate,
+          partsUsed: order.partsUsed,
+          images: order.images
+        },
+        title: `Order #${order.orderNumber}`,
+        description: order.problemDescription,
+        status: order.status,
+        progress: order.status === 'completed' ? 100 : order.status === 'in_progress' ? 50 : 0,
+        assignedAt: order.assignedTo?.assignedAt || order.createdAt,
+        startedAt: order.status === 'in_progress' || order.status === 'completed' ? order.updatedAt : undefined,
+        completedAt: order.status === 'completed' ? order.actualCompletionDate : undefined,
+        amount: order.estimatedCost,
+        isPaid: order.paymentStatus === 'paid',
+        partsUsed: order.partsUsed,
+        updates: order.internalNotes?.map((note: any) => ({
+          note: note.note,
+          addedByName: note.addedByName,
+          timestamp: note.timestamp,
+          type: 'comment'
+        })) || [],
+        isOrderTask: true // Flag to identify this is an order-level task
+      };
+    });
+
+    // Combine subtasks and order tasks
+    const allTasks = [...subTasks, ...orderTasks];
+
+    console.log('🎯 Total tasks (subtasks + order tasks):', allTasks.length);
+    console.log('  - Subtasks:', subTasks.length);
+    console.log('  - Order tasks:', orderTasks.length);
+
+    // Sort combined tasks
+    if (sortBy === 'assignedAt') {
+      allTasks.sort((a, b) => {
+        const dateA = new Date(a.assignedAt).getTime();
+        const dateB = new Date(b.assignedAt).getTime();
+        return order === 'desc' ? dateB - dateA : dateA - dateB;
+      });
+    }
+
     res.status(200).json({
       success: true,
-      count: tasks.length,
-      data: tasks
+      count: allTasks.length,
+      data: allTasks
     });
   } catch (error: any) {
     res.status(500).json({
@@ -96,7 +196,7 @@ export const getEngineerTaskById = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const engineerId = req.user._id;
 
-    // Find task and verify it's assigned to this engineer
+    // First try to find as a subtask
     const task = await SubTask.findOne({
       _id: id,
       assignedTo: engineerId,
@@ -106,16 +206,68 @@ export const getEngineerTaskById = async (req: AuthRequest, res: Response) => {
       select: 'orderNumber device problemDescription diagnosedIssues stageId stageName estimatedCost finalCost status priority receivedDate estimatedCompletionDate partsUsed images'
     });
 
-    if (!task) {
+    if (task) {
+      return res.status(200).json({
+        success: true,
+        data: task
+      });
+    }
+
+    // If not found as subtask, check if it's an order-level task
+    const order = await Order.findOne({
+      _id: id,
+      'assignedTo.userId': engineerId,
+      isDeleted: false
+    });
+
+    if (!order) {
       return res.status(404).json({
         success: false,
         message: 'Task not found or not assigned to you'
       });
     }
 
+    // Transform order to task format (no longer filtering based on subtasks)
+    const orderTask = {
+      _id: order._id,
+      orderId: {
+        _id: order._id,
+        orderNumber: order.orderNumber,
+        device: order.device,
+        problemDescription: order.problemDescription,
+        diagnosedIssues: order.diagnosedIssues,
+        stageName: order.stageName,
+        status: order.status,
+        estimatedCost: order.estimatedCost,
+        finalCost: order.finalCost,
+        receivedDate: order.receivedDate,
+        estimatedCompletionDate: order.estimatedCompletionDate,
+        partsUsed: order.partsUsed,
+        images: order.images,
+        priority: order.priority
+      },
+      title: `Order #${order.orderNumber}`,
+      description: order.problemDescription,
+      status: order.status,
+      progress: order.status === 'completed' ? 100 : order.status === 'in_progress' ? 50 : 0,
+      assignedAt: order.assignedTo?.assignedAt || order.createdAt,
+      startedAt: order.status === 'in_progress' || order.status === 'completed' ? order.updatedAt : undefined,
+      completedAt: order.status === 'completed' ? order.actualCompletionDate : undefined,
+      amount: order.estimatedCost,
+      isPaid: order.paymentStatus === 'paid',
+      partsUsed: order.partsUsed,
+      updates: order.internalNotes?.map((note: any) => ({
+        note: note.note,
+        addedByName: note.addedByName,
+        timestamp: note.timestamp,
+        type: 'comment'
+      })) || [],
+      isOrderTask: true
+    };
+
     res.status(200).json({
       success: true,
-      data: task
+      data: orderTask
     });
   } catch (error: any) {
     res.status(500).json({
@@ -145,74 +297,139 @@ export const updateTaskStatus = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Find task and verify it's assigned to this engineer
+    // First try to find as a subtask
     const task = await SubTask.findOne({
       _id: id,
       assignedTo: engineerId,
       isDeleted: false
     });
 
-    if (!task) {
+    if (task) {
+      // Handle subtask status update
+      const oldStatus = task.status;
+
+      task.status = status;
+
+      if (status === 'in_progress' && !task.startedAt) {
+        task.startedAt = new Date();
+      }
+
+      if (status === 'completed') {
+        task.completedAt = new Date();
+        task.progress = 100;
+      }
+
+      // Add update note
+      task.updates.push({
+        note: notes || `Status changed from ${oldStatus} to ${status}`,
+        addedBy: engineerId,
+        addedByName: engineerName,
+        timestamp: new Date(),
+        type: 'status_change',
+        oldValue: oldStatus,
+        newValue: status
+      });
+
+      await task.save();
+
+      // Update order's subtask progress
+      const order = await Order.findById(task.orderId);
+      if (order) {
+        const allSubTasks = await SubTask.find({
+          orderId: order._id,
+          isDeleted: false
+        });
+
+        order.totalSubTasks = allSubTasks.length;
+        order.completedSubTasks = allSubTasks.filter(st => st.status === 'completed').length;
+        order.subTaskProgress = order.totalSubTasks > 0
+          ? Math.round((order.completedSubTasks / order.totalSubTasks) * 100)
+          : 0;
+
+        await order.save();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Task status updated successfully',
+        data: task
+      });
+    }
+
+    // If not a subtask, check if it's an order-level task
+    const order = await Order.findOne({
+      _id: id,
+      'assignedTo.userId': engineerId,
+      isDeleted: false
+    });
+
+    if (!order) {
       return res.status(404).json({
         success: false,
         message: 'Task not found or not assigned to you'
       });
     }
 
-    const oldStatus = task.status;
+    const oldStatus = order.status;
 
-    // Update status and timestamps
-    task.status = status;
-
-    if (status === 'in_progress' && !task.startedAt) {
-      task.startedAt = new Date();
-    }
+    // Update order status
+    order.status = status;
 
     if (status === 'completed') {
-      task.completedAt = new Date();
-      task.progress = 100;
+      order.actualCompletionDate = new Date();
     }
 
-    // Add update note
-    task.updates.push({
+    // Add internal note about status change
+    order.internalNotes.push({
       note: notes || `Status changed from ${oldStatus} to ${status}`,
       addedBy: engineerId,
       addedByName: engineerName,
-      timestamp: new Date(),
-      type: 'status_change',
-      oldValue: oldStatus,
-      newValue: status
+      timestamp: new Date()
     });
 
-    await task.save();
+    await order.save();
 
-    // Update order's subtask progress
-    const order = await Order.findById(task.orderId);
-    if (order) {
-      const allSubTasks = await SubTask.find({
-        orderId: order._id,
-        isDeleted: false
-      });
-
-      order.totalSubTasks = allSubTasks.length;
-      order.completedSubTasks = allSubTasks.filter(st => st.status === 'completed').length;
-      order.subTaskProgress = order.totalSubTasks > 0
-        ? Math.round((order.completedSubTasks / order.totalSubTasks) * 100)
-        : 0;
-
-      // Auto-update order stage based on subtask completion
-      if (order.completedSubTasks === order.totalSubTasks && order.totalSubTasks > 0) {
-        // All subtasks completed - potentially move to "Ready for Delivery" or similar
-        // This logic can be customized based on your workflow
-      }
-
-      await order.save();
-    }
+    // Transform order to task format for response
+    const orderTask = {
+      _id: order._id,
+      orderId: {
+        _id: order._id,
+        orderNumber: order.orderNumber,
+        device: order.device,
+        problemDescription: order.problemDescription,
+        diagnosedIssues: order.diagnosedIssues,
+        stageName: order.stageName,
+        status: order.status,
+        estimatedCost: order.estimatedCost,
+        finalCost: order.finalCost,
+        receivedDate: order.receivedDate,
+        estimatedCompletionDate: order.estimatedCompletionDate,
+        partsUsed: order.partsUsed,
+        images: order.images
+      },
+      title: `Order #${order.orderNumber}`,
+      description: order.problemDescription,
+      status: order.status,
+      progress: order.status === 'completed' ? 100 : order.status === 'in_progress' ? 50 : 0,
+      assignedAt: order.assignedTo?.assignedAt || order.createdAt,
+      startedAt: order.status === 'in_progress' || order.status === 'completed' ? order.updatedAt : undefined,
+      completedAt: order.status === 'completed' ? order.actualCompletionDate : undefined,
+      amount: order.estimatedCost,
+      isPaid: order.paymentStatus === 'paid',
+      partsUsed: order.partsUsed,
+      updates: order.internalNotes?.map((note: any) => ({
+        note: note.note,
+        addedByName: note.addedByName,
+        timestamp: note.timestamp,
+        type: 'comment'
+      })) || [],
+      isOrderTask: true
+    };
 
     res.status(200).json({
       success: true,
-      message: 'Task status updated successfully',
-      data: task
+      message: 'Order status updated successfully',
+      data: orderTask
     });
   } catch (error: any) {
     res.status(500).json({

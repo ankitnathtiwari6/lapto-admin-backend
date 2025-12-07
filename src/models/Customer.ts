@@ -2,7 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 interface ICustomerDetails {
-  address?: string;
+  address: string;
   alternatePhone?: string;
   totalOrders: number;
   totalSpent: number;
@@ -24,11 +24,11 @@ export interface ICustomer extends Document {
 
 const CustomerSchema = new Schema({
   fullName: { type: String, required: true },
-  email: { type: String, sparse: true, unique: true },
+  email: { type: String, sparse: true },
   phone: { type: String, required: true, unique: true },
   password: { type: String },
   customerDetails: {
-    address: String,
+    address: { type: String, required: true },
     alternatePhone: String,
     totalOrders: { type: Number, default: 0 },
     totalSpent: { type: Number, default: 0 },
