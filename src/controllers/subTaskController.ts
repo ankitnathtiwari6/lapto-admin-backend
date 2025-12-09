@@ -3,6 +3,7 @@ import SubTask from '../models/SubTask';
 import Order from '../models/Order';
 import Staff from '../models/Staff';
 import Stage from '../models/Stage';
+import TaskType from '../models/TaskType';
 import { AuthRequest } from '../middleware/auth';
 import { logActivity } from '../utils/activityLogger';
 
@@ -150,12 +151,22 @@ export const createSubTask = async (req: AuthRequest, res: Response): Promise<vo
       }
     }
 
+    // Get task type name if taskType is provided
+    let taskTypeName;
+    if (req.body.taskType) {
+      const taskType = await TaskType.findById(req.body.taskType);
+      if (taskType) {
+        taskTypeName = taskType.name;
+      }
+    }
+
     const subTaskData = {
       ...req.body,
       orderId,
       orderNumber: order.orderNumber,
       companyId,
       taskLevel,
+      taskTypeName,
       createdBy: req.user.id,
       createdByName: req.user.fullName,
       assignedToName: assignedStaff.fullName,
@@ -301,9 +312,30 @@ export const updateSubTask = async (req: AuthRequest, res: Response): Promise<vo
     // Track changes for updates array
     const updates: any[] = [];
 
+    // Update task type if provided
+    if (req.body.taskType !== undefined) {
+      const taskType = await TaskType.findById(req.body.taskType);
+      if (taskType) {
+        if (subTask.taskType?.toString() !== req.body.taskType) {
+          updates.push({
+            note: `Task type updated to ${taskType.name}`,
+            addedBy: req.user.id,
+            addedByName: req.user.fullName,
+            timestamp: new Date(),
+            type: 'progress_update',
+            oldValue: subTask.taskTypeName || '',
+            newValue: taskType.name
+          });
+        }
+        subTask.taskType = taskType._id as any;
+        subTask.taskTypeName = taskType.name;
+      }
+    }
+
     // Update fields and track changes
     const fieldsToUpdate = [
-      'title', 'description', 'progress', 'blockedBy', 'amount', 'isPaid'
+      'title', 'description', 'progress', 'blockedBy', 'amount', 'isPaid',
+      'startDate', 'dueDate', 'outcome', 'outcomeNotes'
     ];
 
     fieldsToUpdate.forEach(field => {

@@ -28,6 +28,8 @@ export interface ISubTask extends Document {
   // Task details
   title: string;
   description?: string;
+  taskType?: mongoose.Types.ObjectId; // Reference to TaskType
+  taskTypeName?: string;
 
   // Assignment
   createdBy: mongoose.Types.ObjectId;
@@ -39,8 +41,12 @@ export interface ISubTask extends Document {
   // Progress tracking
   status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'blocked' | 'on_hold';
   progress: number;
+  outcome?: 'completed' | 'returned' | 'parts_ordered' | 'replaced' | 'repaired' | 'cancelled' | 'other';
+  outcomeNotes?: string;
 
   // Time tracking
+  startDate?: Date;
+  dueDate?: Date;
   startedAt?: Date;
   completedAt?: Date;
 
@@ -77,6 +83,8 @@ const SubTaskSchema = new Schema({
   // Task details
   title: { type: String, required: true },
   description: String,
+  taskType: { type: Schema.Types.ObjectId, ref: 'TaskType' },
+  taskTypeName: String,
 
   // Assignment
   createdBy: { type: Schema.Types.ObjectId, ref: 'Staff', required: true },
@@ -92,8 +100,15 @@ const SubTaskSchema = new Schema({
     default: 'pending'
   },
   progress: { type: Number, default: 0, min: 0, max: 100 },
+  outcome: {
+    type: String,
+    enum: ['completed', 'returned', 'parts_ordered', 'replaced', 'repaired', 'cancelled', 'other']
+  },
+  outcomeNotes: String,
 
   // Time tracking
+  startDate: Date,
+  dueDate: Date,
   startedAt: Date,
   completedAt: Date,
 
@@ -144,6 +159,8 @@ SubTaskSchema.index({ companyId: 1, status: 1 });
 SubTaskSchema.index({ parentTaskId: 1 });
 SubTaskSchema.index({ orderNumber: 1 });
 SubTaskSchema.index({ status: 1, dueDate: 1 });
+SubTaskSchema.index({ taskType: 1 });
+SubTaskSchema.index({ outcome: 1 });
 
 // Virtual for child sub-tasks
 SubTaskSchema.virtual('childTasks', {

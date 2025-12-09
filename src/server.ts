@@ -27,6 +27,8 @@ import laptoAdminRoutes from "./routes/laptoAdminRoutes";
 import subTaskRoutes from "./routes/subTaskRoutes";
 import activityLogRoutes from "./routes/activityLogRoutes";
 import engineerRoutes from "./routes/engineerRoutes";
+import taskTypeRoutes from "./routes/taskTypeRoutes";
+import outcomeTypeRoutes from "./routes/outcomeTypeRoutes";
 
 // Load env vars
 dotenv.config();
@@ -78,6 +80,8 @@ app.use("/api/ai", aiRoutes);
 app.use("/api", subTaskRoutes); // Sub-task routes
 app.use("/api/activity-logs", activityLogRoutes); // Activity log routes
 app.use("/api/engineer", engineerRoutes); // Engineer-specific routes
+app.use("/api/task-types", taskTypeRoutes); // Task type routes
+app.use("/api/outcome-types", outcomeTypeRoutes); // Outcome type routes
 
 // Error handler (must be last)
 app.use(errorHandler);

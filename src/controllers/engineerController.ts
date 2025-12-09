@@ -278,6 +278,61 @@ export const getEngineerTaskById = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// @desc    Get tasks created/assigned by the engineer
+// @route   GET /api/engineer/assigned-tasks
+// @access  Private (Engineer, Admin, Super Admin)
+export const getTasksAssignedByEngineer = async (req: AuthRequest, res: Response) => {
+  try {
+    const engineerId = req.user._id;
+
+    // Get all subtasks created by this engineer
+    const createdSubTasks = await SubTask.find({
+      createdBy: engineerId,
+      isDeleted: false
+    })
+      .populate('assignedTo', 'fullName phone email role')
+      .populate({
+        path: 'orderId',
+        select: 'orderNumber device status'
+      })
+      .sort({ createdAt: -1 })
+      .limit(20); // Limit to recent 20 tasks
+
+    // Transform to match AssignedTask interface
+    const tasks = createdSubTasks.map(task => {
+      const orderId = task.orderId as any;
+      const assignedTo = task.assignedTo as any;
+
+      return {
+        _id: task._id,
+        orderId: {
+          _id: orderId._id,
+          orderNumber: orderId.orderNumber
+        },
+        engineerId: {
+          _id: assignedTo._id,
+          fullName: assignedTo.fullName
+        },
+        title: task.title,
+        status: task.status,
+        assignedAt: task.assignedAt
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: tasks.length,
+      data: tasks
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching assigned tasks',
+      error: error.message
+    });
+  }
+};
+
 // @desc    Update task status (start, complete, block, etc.)
 // @route   PUT /api/engineer/tasks/:id/status
 // @access  Private (Engineer, Admin, Super Admin)
