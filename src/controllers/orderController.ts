@@ -353,6 +353,7 @@ export const getAllOrders = async (
       limit = 10,
       search,
       companyId,
+      workStatus,
     } = req.query;
     const filter: any = { isDeleted: false };
 
@@ -373,14 +374,70 @@ export const getAllOrders = async (
       ];
     }
 
-    const orders = await Order.find(filter)
-      .sort({ createdAt: -1 })
-      .skip((Number(page) - 1) * Number(limit))
-      .limit(Number(limit))
-      .populate("assignedTo.userId", "fullName phone")
-      .populate("device.deviceTypeId", "name slug");
+    let orders: any[];
+    let total: number;
 
-    const total = await Order.countDocuments(filter);
+    // Handle workStatus filtering
+    // Work Status Logic:
+    // - 'todo': Orders with no assignment AND no subtasks (ready to be worked on)
+    // - 'pending': Orders that are assigned OR have subtasks, but NOT all subtasks completed (work in progress)
+    // - 'completed': Orders where ALL subtasks are completed (work finished)
+    if (workStatus && workStatus !== 'all') {
+      // Get all orders matching base filters
+      const allOrders = await Order.find(filter)
+        .sort({ createdAt: -1 })
+        .populate("assignedTo.userId", "fullName phone")
+        .populate("device.deviceTypeId", "name slug");
+
+      // Filter based on work status
+      const filteredOrders = [];
+
+      for (const order of allOrders) {
+        // Get subtasks for this order
+        const subtasks = await SubTask.find({
+          orderId: order._id,
+          isDeleted: false
+        });
+
+        const hasAssignment = order.assignedTo && order.assignedTo.userId;
+        const hasSubTasks = subtasks.length > 0;
+        const completedSubTasks = subtasks.filter(st => st.status === 'completed').length;
+        const allSubTasksCompleted = hasSubTasks && completedSubTasks === subtasks.length;
+
+        if (workStatus === 'todo') {
+          // Todo: No assignment AND no subtasks
+          if (!hasAssignment && !hasSubTasks) {
+            filteredOrders.push(order);
+          }
+        } else if (workStatus === 'pending') {
+          // Pending: Has assignment OR has subtasks, but NOT all subtasks completed
+          if ((hasAssignment || hasSubTasks) && !allSubTasksCompleted) {
+            filteredOrders.push(order);
+          }
+        } else if (workStatus === 'completed') {
+          // Completed: Has subtasks AND all are completed
+          if (hasSubTasks && allSubTasksCompleted) {
+            filteredOrders.push(order);
+          }
+        }
+      }
+
+      // Apply pagination to filtered results
+      total = filteredOrders.length;
+      const startIndex = (Number(page) - 1) * Number(limit);
+      const endIndex = startIndex + Number(limit);
+      orders = filteredOrders.slice(startIndex, endIndex);
+    } else {
+      // No workStatus filter - use original logic
+      orders = await Order.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((Number(page) - 1) * Number(limit))
+        .limit(Number(limit))
+        .populate("assignedTo.userId", "fullName phone")
+        .populate("device.deviceTypeId", "name slug");
+
+      total = await Order.countDocuments(filter);
+    }
 
     res.status(200).json({
       success: true,
