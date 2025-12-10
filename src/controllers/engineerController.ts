@@ -94,7 +94,7 @@ export const getEngineerTasks = async (req: AuthRequest, res: Response) => {
     const subTasks = await SubTask.find(subTaskQuery)
       .populate({
         path: 'orderId',
-        select: 'orderNumber device problemDescription diagnosedIssues stageId stageName estimatedCost finalCost status receivedDate estimatedCompletionDate partsUsed images'
+        select: 'orderNumber voucherNo device problemDescription diagnosedIssues stageId stageName estimatedCost finalCost status receivedDate estimatedCompletionDate partsUsed images'
       })
       .sort({ [sortBy as string]: order === 'desc' ? -1 : 1 });
 
@@ -126,6 +126,7 @@ export const getEngineerTasks = async (req: AuthRequest, res: Response) => {
         orderId: {
           _id: order._id,
           orderNumber: order.orderNumber,
+          voucherNo: order.voucherNo,
           device: order.device,
           problemDescription: order.problemDescription,
           diagnosedIssues: order.diagnosedIssues,
@@ -203,7 +204,7 @@ export const getEngineerTaskById = async (req: AuthRequest, res: Response) => {
       isDeleted: false
     }).populate({
       path: 'orderId',
-      select: 'orderNumber device problemDescription diagnosedIssues stageId stageName estimatedCost finalCost status priority receivedDate estimatedCompletionDate partsUsed images'
+      select: 'orderNumber voucherNo device problemDescription diagnosedIssues stageId stageName estimatedCost finalCost status priority receivedDate estimatedCompletionDate partsUsed images'
     });
 
     if (task) {
@@ -233,6 +234,7 @@ export const getEngineerTaskById = async (req: AuthRequest, res: Response) => {
       orderId: {
         _id: order._id,
         orderNumber: order.orderNumber,
+        voucherNo: order.voucherNo,
         device: order.device,
         problemDescription: order.problemDescription,
         diagnosedIssues: order.diagnosedIssues,
@@ -293,7 +295,7 @@ export const getTasksAssignedByEngineer = async (req: AuthRequest, res: Response
       .populate('assignedTo', 'fullName phone email role')
       .populate({
         path: 'orderId',
-        select: 'orderNumber device status'
+        select: 'orderNumber voucherNo device status'
       })
       .sort({ createdAt: -1 })
       .limit(20); // Limit to recent 20 tasks
@@ -307,7 +309,8 @@ export const getTasksAssignedByEngineer = async (req: AuthRequest, res: Response
         _id: task._id,
         orderId: {
           _id: orderId._id,
-          orderNumber: orderId.orderNumber
+          orderNumber: orderId.orderNumber,
+          voucherNo: orderId.voucherNo
         },
         engineerId: {
           _id: assignedTo._id,
@@ -450,6 +453,7 @@ export const updateTaskStatus = async (req: AuthRequest, res: Response) => {
       orderId: {
         _id: order._id,
         orderNumber: order.orderNumber,
+        voucherNo: order.voucherNo,
         device: order.device,
         problemDescription: order.problemDescription,
         diagnosedIssues: order.diagnosedIssues,
