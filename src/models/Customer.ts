@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 interface ICustomerDetails {
   address: string;
   alternatePhone?: string;
+  customerType: 'Retail' | 'Dealer';
   totalOrders: number;
   totalSpent: number;
   lastVisit?: Date;
@@ -30,6 +31,11 @@ const CustomerSchema = new Schema({
   customerDetails: {
     address: { type: String, required: true },
     alternatePhone: String,
+    customerType: {
+      type: String,
+      enum: ['Retail', 'Dealer'],
+      default: 'Retail'
+    },
     totalOrders: { type: Number, default: 0 },
     totalSpent: { type: Number, default: 0 },
     lastVisit: Date

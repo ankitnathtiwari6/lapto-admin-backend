@@ -209,7 +209,7 @@ const OrderSchema = new Schema({
   customerComplaints: [String],
   diagnosedIssues: [String],
   services: [{
-    serviceTypeId: { type: Schema.Types.Mixed },
+    serviceTypeId: { type: Schema.Types.ObjectId, ref: 'ServiceType' },
     serviceTypeName: String,
     description: String,
     quantity: { type: Number, default: 1 },

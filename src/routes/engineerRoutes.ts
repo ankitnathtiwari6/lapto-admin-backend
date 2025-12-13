@@ -4,13 +4,17 @@ import {
   getEngineerTaskById,
   updateTaskStatus,
   getEngineerStats,
-  getTasksAssignedByEngineer
+  getTasksAssignedByEngineer,
+  getEngineersWithStats
 } from '../controllers/engineerController';
 import { protect, authorize } from '../middleware/auth';
 
 const router = Router();
 
-// All routes require authentication and engineer role
+// This route should be accessible by admins to see all engineers' stats
+router.get('/with-stats', protect, authorize('admin', 'super_admin'), getEngineersWithStats);
+
+// All of the following routes require authentication and engineer role
 router.use(protect);
 router.use(authorize('engineer', 'admin', 'super_admin'));
 

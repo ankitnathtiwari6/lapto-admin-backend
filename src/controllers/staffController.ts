@@ -320,6 +320,89 @@ export const getStaffWithStats = async (req: AuthRequest, res: Response): Promis
   }
 };
 
+// Get engineers with workload statistics for assignment purposes
+export const getEngineersWithWorkload = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const filter: any = {
+      role: 'engineer',
+      status: 'active'
+    };
+
+    // Filter by company
+    const companyId = req.query.companyId || req.companyId;
+    if (companyId) {
+      filter.companyId = companyId;
+    }
+
+    const engineers = await Staff.find(filter)
+      .select('_id fullName email phone role')
+      .lean();
+
+    // Get workload statistics for each engineer
+    const engineersWithWorkload = await Promise.all(
+      engineers.map(async (engineer) => {
+        // Get all subtasks assigned to this engineer
+        const subTasks = await SubTask.find({
+          assignedTo: engineer._id,
+          isDeleted: false
+        }).lean();
+
+        const totalTasks = subTasks.length;
+        const pendingTasks = subTasks.filter(st => st.status === 'pending').length;
+        const inProgressTasks = subTasks.filter(st => st.status === 'in_progress').length;
+        const completedTasks = subTasks.filter(st => st.status === 'completed').length;
+        const blockedTasks = subTasks.filter(st => st.status === 'blocked' || st.status === 'on_hold').length;
+
+        // Get orders assigned to this engineer
+        const orders = await Order.find({
+          'assignedTo.userId': engineer._id,
+          isDeleted: false
+        }).lean();
+
+        const totalOrders = orders.length;
+        const completedOrders = orders.filter(order =>
+          order.status === 'completed' || order.status === 'returned'
+        ).length;
+        const pendingOrders = orders.filter(order =>
+          order.status === 'pending' || order.status === 'in_progress'
+        ).length;
+
+        return {
+          ...engineer,
+          workload: {
+            totalTasks,
+            pendingTasks,
+            inProgressTasks,
+            completedTasks,
+            blockedTasks,
+            totalOrders,
+            completedOrders,
+            pendingOrders,
+            // Calculate workload percentage (pending + in_progress tasks)
+            currentWorkload: pendingTasks + inProgressTasks,
+            // Calculate completion rate
+            completionRate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
+          }
+        };
+      })
+    );
+
+    // Sort by current workload (ascending) to show least busy engineers first
+    engineersWithWorkload.sort((a, b) => a.workload.currentWorkload - b.workload.currentWorkload);
+
+    res.status(200).json({
+      success: true,
+      count: engineersWithWorkload.length,
+      data: engineersWithWorkload
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
 // Get detailed orders for a specific staff member with commission breakdown
 export const getStaffOrders = async (req: AuthRequest, res: Response): Promise<void> => {
   try {

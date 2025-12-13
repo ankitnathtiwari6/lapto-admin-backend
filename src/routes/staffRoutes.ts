@@ -7,7 +7,8 @@ import {
   deleteStaff,
   getEngineers,
   getStaffWithStats,
-  getStaffOrders
+  getStaffOrders,
+  getEngineersWithWorkload
 } from '../controllers/staffController';
 import { protect, authorize } from '../middleware/auth';
 
@@ -16,6 +17,7 @@ const router = Router();
 router.use(protect);
 
 router.get('/engineers', getEngineers);
+router.get('/engineers/workload', getEngineersWithWorkload);
 router.get('/with-stats', authorize('admin', 'super_admin'), getStaffWithStats);
 router.get('/:id/orders', authorize('admin', 'super_admin'), getStaffOrders);
 

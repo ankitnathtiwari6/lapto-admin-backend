@@ -79,7 +79,7 @@ app.use("/api/accounting", accountingRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api", subTaskRoutes); // Sub-task routes
 app.use("/api/activity-logs", activityLogRoutes); // Activity log routes
-app.use("/api/engineer", engineerRoutes); // Engineer-specific routes
+app.use("/api/engineers", engineerRoutes); // Engineer-specific routes
 app.use("/api/task-types", taskTypeRoutes); // Task type routes
 app.use("/api/outcome-types", outcomeTypeRoutes); // Outcome type routes
 
