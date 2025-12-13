@@ -31,6 +31,23 @@ export const createOrder = async (
       return;
     }
 
+    // Check if voucher number already exists
+    if (req.body.voucherNo) {
+      const existingOrder = await Order.findOne({
+        voucherNo: req.body.voucherNo,
+        companyId: companyId,
+        isDeleted: false,
+      });
+
+      if (existingOrder) {
+        res.status(400).json({
+          success: false,
+          message: `Voucher number ${req.body.voucherNo} already exists`,
+        });
+        return;
+      }
+    }
+
     const orderType = req.body.orderType || 'service'; // default to service for backward compatibility
     const orderNumber = await generateOrderNumber();
     const invoiceNumber = await generateInvoiceNumber();
