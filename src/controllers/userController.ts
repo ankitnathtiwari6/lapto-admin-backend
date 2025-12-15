@@ -1,5 +1,7 @@
 import { Response } from 'express';
 import Staff from '../models/Staff';
+import SubTask from '../models/SubTask';
+import Order from '../models/Order';
 import { AuthRequest } from '../middleware/auth';
 
 export const getAllUsers = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -122,15 +124,23 @@ export const updateUser = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    const updatedUser = await Staff.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    ).select('-password');
+    // Update user fields
+    Object.keys(req.body).forEach(key => {
+      if (key !== '_id' && key !== 'companyId') {
+        (user as any)[key] = req.body[key];
+      }
+    });
+
+    // Save the user (this triggers the pre-save hook to hash password if changed)
+    await user.save();
+
+    // Return user without password
+    const userObject = user.toObject();
+    delete userObject.password;
 
     res.status(200).json({
       success: true,
-      data: updatedUser
+      data: userObject
     });
   } catch (error: any) {
     res.status(500).json({
@@ -182,12 +192,97 @@ export const getEngineers = async (req: AuthRequest, res: Response): Promise<voi
     const engineers = await Staff.find(filter)
       .select('-password')
       .populate('companyId', 'companyName')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Get task statistics for each engineer
+    const engineerIds = engineers.map(e => e._id);
+
+    // Get subtask stats using aggregation
+    const subTaskStats = await SubTask.aggregate([
+      {
+        $match: {
+          assignedTo: { $in: engineerIds },
+          isDeleted: false,
+          status: { $in: ['pending', 'in_progress', 'completed'] }
+        }
+      },
+      {
+        $group: {
+          _id: '$assignedTo',
+          pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+          in_progress: { $sum: { $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0] } },
+          completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    // Get order-level task stats using aggregation (orders without subtasks)
+    const orderStats = await Order.aggregate([
+      {
+        $match: {
+          'assignedTo.userId': { $in: engineerIds },
+          isDeleted: false,
+          status: { $in: ['pending', 'in_progress', 'completed'] }
+        }
+      },
+      {
+        $lookup: {
+          from: 'subtasks',
+          localField: '_id',
+          foreignField: 'orderId',
+          as: 'subtasks',
+          pipeline: [{ $match: { isDeleted: false } }]
+        }
+      },
+      {
+        $match: {
+          subtasks: { $size: 0 }
+        }
+      },
+      {
+        $group: {
+          _id: '$assignedTo.userId',
+          pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+          in_progress: { $sum: { $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0] } },
+          completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    // Combine stats
+    const statsMap = new Map<string, any>();
+
+    [...subTaskStats, ...orderStats].forEach(stat => {
+      const engineerId = stat._id.toString();
+      if (!statsMap.has(engineerId)) {
+        statsMap.set(engineerId, { pending: 0, in_progress: 0, completed: 0 });
+      }
+      const currentStats = statsMap.get(engineerId);
+      currentStats.pending += stat.pending;
+      currentStats.in_progress += stat.in_progress;
+      currentStats.completed += stat.completed;
+    });
+
+    // Add engineerDetails to each engineer
+    const engineersWithDetails = engineers.map(engineer => {
+      const stats = statsMap.get(engineer._id.toString()) || { pending: 0, in_progress: 0, completed: 0 };
+      return {
+        ...engineer,
+        engineerDetails: {
+          currentWorkload: stats.pending + stats.in_progress,
+          totalRepairsCompleted: stats.completed,
+          rating: 4.5, // Default rating - can be updated later from a ratings system
+          employeeId: `ENG-${engineer._id.toString().slice(-6).toUpperCase()}`, // Generate employee ID from MongoDB _id
+          specialization: [] // Default empty - can be added to Staff model later
+        }
+      };
+    });
 
     res.status(200).json({
       success: true,
-      count: engineers.length,
-      data: engineers
+      count: engineersWithDetails.length,
+      data: engineersWithDetails
     });
   } catch (error: any) {
     res.status(500).json({

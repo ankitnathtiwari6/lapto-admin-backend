@@ -142,6 +142,9 @@ export const getEngineerTasks = async (req: AuthRequest, res: Response) => {
         },
         title: `Order #${order.orderNumber}`,
         description: order.problemDescription,
+        taskTypeName: 'Order Task',
+        createdByName: 'Admin', // Order assignments don't track who assigned them
+        createdAt: order.createdAt,
         status: order.status,
         progress: order.status === 'completed' ? 100 : order.status === 'in_progress' ? 50 : 0,
         assignedAt: order.assignedTo?.assignedAt || order.createdAt,
@@ -251,6 +254,9 @@ export const getEngineerTaskById = async (req: AuthRequest, res: Response) => {
       },
       title: `Order #${order.orderNumber}`,
       description: order.problemDescription,
+      taskTypeName: 'Order Task',
+      createdByName: 'Admin', // Order assignments don't track who assigned them
+      createdAt: order.createdAt,
       status: order.status,
       progress: order.status === 'completed' ? 100 : order.status === 'in_progress' ? 50 : 0,
       assignedAt: order.assignedTo?.assignedAt || order.createdAt,
@@ -469,6 +475,9 @@ export const updateTaskStatus = async (req: AuthRequest, res: Response) => {
       },
       title: `Order #${order.orderNumber}`,
       description: order.problemDescription,
+      taskTypeName: 'Order Task',
+      createdByName: 'Admin', // Order assignments don't track who assigned them
+      createdAt: order.createdAt,
       status: order.status,
       progress: order.status === 'completed' ? 100 : order.status === 'in_progress' ? 50 : 0,
       assignedAt: order.assignedTo?.assignedAt || order.createdAt,
